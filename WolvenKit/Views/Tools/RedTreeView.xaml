@@ -12,7 +12,6 @@
     xmlns:treeViewEngine="clr-namespace:Syncfusion.UI.Xaml.TreeView.Engine;assembly=Syncfusion.SfTreeView.WPF"
     x:Name="redTreeView"
     d:DesignHeight="450"
-    ContextMenuOpening="OnContextMenuOpened"
     d:DesignWidth="800"
     mc:Ignorable="d">
     <UserControl.Resources>
@@ -49,7 +48,6 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
-
 
             <!-- Text block --> 
             <Style x:Key="PropertyValueStyle" TargetType="TextBlock">
@@ -267,9 +265,8 @@
 
             <ContextMenu x:Key="TreeViewContextMenu"
                          Name="TreeViewContextMenu"
-                         KeyUp="OnKeystateChanged"
-                         KeyDown="OnKeystateChanged"
-                         DataContext="{Binding Path=PlacementTarget, RelativeSource={RelativeSource Self}}">
+                         DataContext="{Binding Path=PlacementTarget, RelativeSource={RelativeSource Self}}"
+                         Opened="TreeViewContextMenu_OnOpened">
                
                 <ContextMenu.Resources>
                     <Style TargetType="MenuItem">
@@ -476,6 +473,25 @@
                     </MenuItem.Icon>
                 </MenuItem>
 
+                <!-- Mesh: Material only -->
+                <!-- Toggle IsMasked -->
+                <MenuItem
+                    Command="{Binding Path=PlacementTarget.Tag.ToggleEnableMaskedCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                    Header="Toggle 'EnableMask'"
+                    IsCheckable="False"
+                    Style="{StaticResource SyncfusionMenuItemStyle}"
+                    Visibility="{Binding Path=IsEnabled, RelativeSource={RelativeSource Self}, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <MenuItem.Icon>
+                        <iconPacks:PackIconMaterial
+                            Width="13"
+                            Height="13"
+                            Padding="0,0,0,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Kind="ToggleSwitch" />
+                    </MenuItem.Icon>
+                </MenuItem>
+
                 <!-- Search & Replace -->
                 <MenuItem
                     Command="{Binding OpenSearchAndReplaceDialogCommand, Source={x:Reference redTreeView}}"
@@ -671,8 +687,7 @@
                     Header="Paste Into Array/Buffer"
                     IsCheckable="False"
                     Style="{StaticResource SyncfusionMenuItemStyle}"
-                    Visibility="{Binding Path=PlacementTarget.Tag.ShouldShowPasteIntoArray, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BooleanToVisibilityConverter}}">
-
+                    Visibility="{Binding Path=IsEnabled, RelativeSource={RelativeSource Self}, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <MenuItem.Icon>
                         <iconPacks:PackIconMaterial Kind="ContentPaste" Style="{StaticResource ContextMenuIconStyleMaterial}" />
                     </MenuItem.Icon>
@@ -734,7 +749,19 @@
                     Header="Delete Selection in Array/Buffer"
                     IsCheckable="False"
                     Style="{StaticResource SyncfusionMenuItemStyle}"
-                    Visibility="{Binding Path=PlacementTarget.Tag.IsInArray, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    Visibility="{Binding Path=PlacementTarget.Tag.IsInArrayWithShiftKeyUp, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <MenuItem.Icon>
+                        <iconPacks:PackIconCodicons Kind="Remove" Style="{StaticResource ContextMenuIconStyleCodicons}" />
+                    </MenuItem.Icon>
+                </MenuItem>
+
+                <!-- Delete Everything But Selection -->
+                <MenuItem
+                    Command="{Binding Path=PlacementTarget.Tag.DeleteAllButSelectionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                    Header="Delete All but Selection in Array/Buffer"
+                    IsCheckable="False"
+                    Style="{StaticResource SyncfusionMenuItemStyle}"
+                    Visibility="{Binding Path=PlacementTarget.Tag.IsInArrayWithShiftKeyDown, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <MenuItem.Icon>
                         <iconPacks:PackIconCodicons Kind="Remove" Style="{StaticResource ContextMenuIconStyleCodicons}" />
                     </MenuItem.Icon>

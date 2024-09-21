@@ -122,23 +122,14 @@ namespace WolvenKit.Views.Tools
                     var dialog = new ShowBrokenReferencesDialogView(args.Item1, args.Item2);
                     return dialog.ShowDialog(Application.Current.MainWindow) == true;
                 };
-                    
+
                 Interactions.RenameAndRefactor = input =>
-                    {
-                        var dialog = new RenameDialog(true);
-                        if (dialog.ViewModel is not null)
-                        {
-                            dialog.ViewModel.Text = input;
-                        }
+                {
+                    var result = ShowRenameDialog(input);
+                    return new Tuple<string, bool>(result.Text, result.EnableRefactoring);
+                };
 
-                        if (dialog.ViewModel is not RenameDialogViewModel innerVm
-                            || dialog.ShowDialog(Application.Current.MainWindow) != true)
-                        {
-                            return new Tuple<string, bool>("", false);
-                        }
-
-                        return new Tuple<string, bool>(innerVm.Text, innerVm.EnableRefactoring == true);
-                    };
+                Interactions.Rename = input => ShowRenameDialog(input).Text;
 
 
                 Interactions.AskForTextInput = title =>
@@ -167,7 +158,6 @@ namespace WolvenKit.Views.Tools
                     return innerVm.Text;
                 };
                
-
                 //EventBindings
                 Observable
                     .FromEventPattern(TreeGrid, nameof(TreeGrid.CellDoubleTapped))
@@ -202,7 +192,25 @@ namespace WolvenKit.Views.Tools
                     .DisposeWith(disposables);
 
                 ViewModel.OnToggleFlatMode += OnToggleFlatMode;
+
             });
+        }
+
+        private static (string Text, bool EnableRefactoring) ShowRenameDialog(string input)
+        {
+            var dialog = new RenameDialog(true);
+            if (dialog.ViewModel is not null)
+            {
+                dialog.ViewModel.Text = input;
+            }
+
+            if (dialog.ViewModel is not RenameDialogViewModel innerVm
+                || dialog.ShowDialog(Application.Current.MainWindow) != true)
+            {
+                return (string.Empty, false);
+            }
+
+            return (innerVm.Text, innerVm.EnableRefactoring == true);
         }
 
         // Not sure why the property binding broke, but it did. This fixes it.
@@ -390,7 +398,6 @@ namespace WolvenKit.Views.Tools
 
             // register to KeyUp because KeyDown doesn't forward "F2"
             KeyUp += OnKeyUp;
-            KeyDown += OnKeyStateChanged; 
             ViewModel.IsKeyUpEventAssigned = true;
         }
 
@@ -423,20 +430,10 @@ namespace WolvenKit.Views.Tools
         }
 
         /// <summary>
-        /// Called from view on keyup/keydown event. Synchronises modifier state with ModifierViewStateModel.
-        /// </summary>
-        private void OnKeyStateChanged(object sender, KeyEventArgs e) => ViewModel?.RefreshModifierStates();
-
-        public void RefreshModifierStates(object sender, RoutedEventArgs routedEventArgs) => ViewModel?.RefreshModifierStates();
-
-        /// <summary>
         /// Called from view on key down event. Handles search bar and rename/delete commands.
         /// </summary>
         private void OnKeyUp(object sender, KeyEventArgs e)
         {
-            // For context menu switching
-            OnKeyStateChanged(sender, e);
-            
             if (PESearchBar.IsFocused)
             {
                 return;
@@ -728,7 +725,7 @@ namespace WolvenKit.Views.Tools
         /// </summary>
         private async Task ProcessFileAction(IReadOnlyList<string> sourceFiles, string targetDirectory)
         {
-            var isCopy = ViewModel?.ModifierViewStateService.GetModifierState(ModifierKeys.Control) == true;
+            var isCopy = ViewModel?.ModifierViewStateService.IsCtrlKeyPressed == true;
 
             // Abort if a directory is dragged on itself or its parent
             if (!isCopy && sourceFiles.Count == 1 &&

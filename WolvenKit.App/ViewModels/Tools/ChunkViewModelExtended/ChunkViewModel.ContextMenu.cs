@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WolvenKit.App.Helpers;
@@ -14,9 +15,13 @@ public partial class ChunkViewModel
 {
     #region properties
 
-    /// <summary>
-    /// If shift is not being held, show "Duplicate Selection"
-    /// </summary>
+    [NotifyCanExecuteChangedFor(nameof(DuplicateChunkCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DuplicateAsNewChunkCommand))]
+    [ObservableProperty] private bool _isShiftKeyPressed;
+    
+    [ObservableProperty] private bool _isCtrlKeyPressed;
+    [ObservableProperty] private bool _isAltKeyPressed;
+    
     [ObservableProperty] private bool _shouldShowDuplicate;
 
     [ObservableProperty] private bool _shouldShowPasteIntoArray;
@@ -24,42 +29,49 @@ public partial class ChunkViewModel
     [ObservableProperty] private bool _shouldShowOverwriteArray;
     [ObservableProperty] private bool _shouldShowPasteOverwrite;
 
+    [ObservableProperty] private bool _isInArrayWithShiftKeyDown;
+    [ObservableProperty] private bool _isInArrayWithShiftKeyUp;
+
     [ObservableProperty] private bool _isMaterial;
 
     [ObservableProperty] private bool _isMaterialArray;
     [ObservableProperty] private bool _shouldShowCreateMatDef;
     [ObservableProperty] private bool _shouldShowCreateExternalMatDef;
 
-    private bool IsShiftKeyPressed => _modifierViewStateService.IsShiftKeyPressed;
-    private bool IsShiftKeyPressedOnly => _modifierViewStateService.IsShiftKeyPressedOnly;
-    private bool IsCtrlKeyPressed => _modifierViewStateService.IsCtrlKeyPressed;
-
     [ObservableProperty] private bool _shouldShowDuplicateAsNew;
 
     #endregion
 
-    /// <summary>
-    /// Triggered externally from RedTreeView, since binding to the listener ourselves will cause an event avalanche
-    /// </summary>
+    #region methods
+
+    private void OnModifierChanged(object? sender, KeyEventArgs e) => RefreshContextMenuFlags();
+
     public void RefreshContextMenuFlags()
     {
-        ShouldShowPasteOverwrite = ShouldShowArrayOps && IsShiftKeyPressedOnly && Tab?.SelectedChunk is not null;
-        ShouldShowOverwriteArray = ShouldShowArrayOps && IsCtrlKeyPressed && !ShouldShowPasteOverwrite;
+        IsShiftKeyPressed = _modifierViewStateService.IsShiftKeyPressed;
+        IsCtrlKeyPressed = _modifierViewStateService.IsCtrlKeyPressed;
+        IsAltKeyPressed = _modifierViewStateService.IsAltKeyPressed;
+
+        ShouldShowPasteOverwrite = IsInArray && _modifierViewStateService.IsShiftKeyPressedOnly && Tab?.SelectedChunk is not null;
+        ShouldShowOverwriteArray = ShouldShowArrayOps && ((IsArray && IsShiftKeyPressed) ||
+                                                          (IsCtrlKeyPressed && !ShouldShowPasteOverwrite));
         ShouldShowPasteIntoArray = ShouldShowArrayOps && !(ShouldShowPasteOverwrite || ShouldShowOverwriteArray);
 
         IsMaterial = ResolvedData is CMaterialInstance or CResourceAsyncReference<IMaterial>;
 
         IsMaterialArray = ResolvedData is CArray<IMaterial> or CArray<CResourceAsyncReference<IMaterial>>;
-   
+
         ShouldShowDuplicateAsNew =
-            IsInArray && !IsShiftKeyPressedOnly &&
+            IsInArray && !IsShiftKeyPressed &&
             ResolvedData is worldCompiledEffectPlacementInfo or CMeshMaterialEntry;
 
         ShouldShowDuplicate = !ShouldShowDuplicateAsNew && IsInArray;
+
+        IsInArrayWithShiftKeyUp = IsInArray && !IsShiftKeyPressed;
+        IsInArrayWithShiftKeyDown = IsInArray && IsShiftKeyPressed;
+
+        ToggleEnableMaskedCommand.NotifyCanExecuteChanged();
     }
-
-
-    #region methods
 
     public bool IsMaterialDefinition()
     {
@@ -86,7 +98,7 @@ public partial class ChunkViewModel
             return Task.CompletedTask;
         }
 
-        var materialEntries = Parent?.Parent?.GetRootModel().GetModelFromPath("materialEntries");
+        var materialEntries = Parent?.Parent?.GetRootModel().GetPropertyFromPath("materialEntries");
 
         if (materialEntries?.ResolvedData is not CArray<CMeshMaterialEntry> array)
         {
@@ -112,7 +124,7 @@ public partial class ChunkViewModel
 
         // now rename the chunks
 
-        var appCvm = Parent?.Parent?.GetRootModel().GetModelFromPath("appearances");
+        var appCvm = Parent?.Parent?.GetRootModel().GetPropertyFromPath("appearances");
         if (appCvm?.ResolvedData is not CArray<CHandle<meshMeshAppearance>> appearances)
         {
             return Task.CompletedTask;
@@ -152,7 +164,6 @@ public partial class ChunkViewModel
     public async Task<HashSet<ResourcePath>> GetMaterialDependenciesOutsideOfProject()
     {
         HashSet<ResourcePath> ret = [];
-        _modifierViewStateService.RefreshModifierStates();
 
         switch (GetRootModel().ResolvedData)
         {
@@ -232,7 +243,7 @@ public partial class ChunkViewModel
             }
 
             // base game file: Only add those if shift is down
-            if (_modifierViewStateService.IsShiftKeyPressed
+            if (IsShiftKeyPressed
                 && _archiveManager.Lookup(refPathHash, ArchiveManagerScope.Basegame).HasValue)
             {
                 ret.Add(refPath);
@@ -257,7 +268,7 @@ public partial class ChunkViewModel
 
         if (ResolvedData is CName data && Parent?.Name == "chunkMaterials" &&
             data.GetResolvedText() is string materialName &&
-            GetRootModel().FindPropertyNode("materialEntries") is
+            GetRootModel().GetPropertyFromPath("materialEntries") is
                 { ResolvedData: CArray<CMeshMaterialEntry> ary } materialEntries)
         {
             if (ary.FirstOrDefault(e => e.Name == materialName) is not CMeshMaterialEntry matDef)
@@ -287,18 +298,46 @@ public partial class ChunkViewModel
         }
     }
 
+    private bool CanToggleMask() => IsMaterialArray || IsMaterial;
+
+    [RelayCommand(CanExecute = nameof(CanToggleMask))]
+    private void ToggleEnableMasked()
+    {
+        switch (ResolvedData)
+        {
+            case CMaterialInstance material:
+                material.EnableMask = !material.EnableMask;
+                break;
+            case CArray<CMeshMaterialEntry>:
+            {
+                foreach (var property in TVProperties.Where(p => p.ResolvedData is CMaterialInstance))
+                {
+                    property.ToggleEnableMaskedCommand.Execute(null);
+                }
+
+                break;
+            }
+            default:
+                return;
+        }
+
+        RecalculateProperties();
+        Tab?.Parent.SetIsDirty(true);
+    }
+
+
     [RelayCommand]
     private async Task<Task> AddMaterialAndDefinition()
     {
         var newName = await Interactions.ShowInputBoxAsync("New material name", "");
 
-        var materialEntries = Parent?.GetRootModel().GetModelFromPath("materialEntries");
+        var materialEntries = Parent?.GetRootModel().GetPropertyFromPath("materialEntries");
         if (materialEntries?.ResolvedData is not CArray<CMeshMaterialEntry> array)
         {
             return Task.CompletedTask;
         }
 
-        var isLocalInstance = Parent?.ResolvedData is meshMeshMaterialBuffer || Name == "PreloadLocalMaterials";
+        var isLocalInstance = Parent?.ResolvedData is meshMeshMaterialBuffer || Name == PreloadMaterialPath;
 
         // Add the material definition
         var lastIndex = array.LastOrDefault((e) => e.IsLocalInstance == isLocalInstance)?.Index ?? -1;
