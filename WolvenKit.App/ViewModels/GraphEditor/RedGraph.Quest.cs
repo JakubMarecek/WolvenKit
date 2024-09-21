@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using DynamicData;
 using WolvenKit.App.Factories;
 using WolvenKit.App.ViewModels.Documents;
 using WolvenKit.App.ViewModels.GraphEditor.Nodes.Quest;
@@ -164,6 +165,34 @@ public partial class RedGraph
         }
 
         Nodes.Remove(node);
+    }
+
+    private void DuplicateQuestNode(BaseQuestViewModel node)
+    {
+        var graph = ((graphGraphDefinition)_data).Nodes;
+        for (var i = graph.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(graph[i].Chunk, node.Data))
+            {
+                var instance = InternalCreateQuestNode(node.Data.GetType());
+
+                if (instance is questFactsDBManagerNodeDefinition a)
+                {
+                    a.Type = ((graph[i].Chunk as questFactsDBManagerNodeDefinition)?.Type.DeepCopy()) as CHandle<questIFactsDBManagerNodeType>;
+                }
+
+                var wrappedInstance = WrapQuestNode(instance, true);
+                wrappedInstance.Location = new(node.Location.X + 100, node.Location.Y + 100);
+
+                ((graphGraphDefinition)_data).Nodes.Add(new CHandle<graphGraphNodeDefinition>(instance));
+                if (GetQuestNodesChunkViewModel() is { } nodes)
+                {
+                    nodes.RecalculateProperties();
+                }
+                
+                Nodes.Add(wrappedInstance);
+            }
+        }
     }
 
     private Type GetWrapperType(Type type)

@@ -280,6 +280,8 @@ public partial class GraphEditorView : UserControl
 
         node.ContextMenu.Items.Add(CreateMenuItem("Remove Node", () => Source.RemoveNode(nvm)));
 
+        node.ContextMenu.Items.Add(CreateMenuItem("Duplicate Node", () => Source.DuplicateNode(nvm)));
+
         node.ContextMenu.SetCurrentValue(ContextMenu.IsOpenProperty, true);
 
         e.Handled = true;

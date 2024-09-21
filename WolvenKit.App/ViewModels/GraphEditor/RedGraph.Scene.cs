@@ -109,6 +109,11 @@ public partial class RedGraph
         Nodes.Remove(node);
     }
 
+    private void DuplicateSceneNode(BaseSceneViewModel node)
+    {
+
+    }
+
     private BaseSceneViewModel WrapSceneNode(scnSceneGraphNode node)
     {
         var sceneResource = (scnSceneResource)_data;
