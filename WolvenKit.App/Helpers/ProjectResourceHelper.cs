@@ -126,8 +126,13 @@ public static class ProjectResourceHelper
                                                   GetUniqueSubfolderPath(allFilePaths, groups.First().GetResolvedText() ?? "");
                         }
 
-                        pathsAndDestinations[path] = $"{destFolderRelativePath}{uniqueSubfolderPath}";
+                        var targetPath = $"{destFolderRelativePath}{uniqueSubfolderPath}";
+                        if (targetPath != path)
+                        {
+                            pathsAndDestinations[path] = targetPath;
+                        }
                     }
+
 
                     List<string> existingFiles = pathsAndDestinations.Where(kvp =>
                     {
@@ -187,6 +192,32 @@ public static class ProjectResourceHelper
     }
 
 
+    public static void AddToProject(ResourcePath resourcePath)
+    {
+        if (resourcePath.GetResolvedText() is not string sourceRelativePath
+            || string.IsNullOrEmpty(sourceRelativePath))
+        {
+            return;
+        }
+
+        var refPathHash = HashHelper.CalculateDepotPathHash(resourcePath);
+        // we can't add it
+        if (refPathHash is 0 || GetArchiveManager() is not IArchiveManager archiveManager ||
+            GetRed4Controller() is not RED4Controller controller)
+        {
+            return;
+        }
+
+        if (archiveManager.Lookup(refPathHash, ArchiveManagerScope.Basegame) is { HasValue: true } basegameFile)
+        {
+            controller.AddToMod(basegameFile.Value, ArchiveManagerScope.Basegame);
+        }
+        else if (archiveManager.Lookup(refPathHash, ArchiveManagerScope.Mods) is { HasValue: true } modFile)
+        {
+            controller.AddToMod(modFile.Value, ArchiveManagerScope.Mods);
+        }
+    }
+    
     private static void AddFileToProjectFolder(string projectRoot, ResourcePath resourcePath, ResourcePath targetResourcePath,
         Dictionary<string, string> pathReplacements, bool overwriteFiles)
     {
@@ -271,22 +302,17 @@ public static class ProjectResourceHelper
 
         if (Path.IsPathRooted(destRelPath))
         {
-            destRelPath = activeProject.GetRelativePath(sourcePath);
+            (_, destRelPath) = activeProject.SplitFilePath(destPath);
         }
 
         // If we're given a directory here, make sure that we have a file path
         var destAbsPath = Path.Join(absoluteFolderPrefix, destRelPath);
-        if (Directory.Exists(destAbsPath))
-        {
-            destRelPath = Path.Join(destRelPath, Path.GetFileName(sourceRelPath));
-            destAbsPath = Path.Join(destAbsPath, Path.GetFileName(sourceRelPath));
-        }
 
-        if (sourceRelPath == destRelPath || sourceRelPath.Contains(destRelPath))
+        // don't copy a directory on itself
+        if (sourceRelPath == destRelPath)
         {
             return;
         }
-
 
         var sourceAbsPath = Path.Join(absoluteFolderPrefix, sourceRelPath);
         var sourceIsDirectory = Directory.Exists(sourceAbsPath);
@@ -314,6 +340,13 @@ public static class ProjectResourceHelper
             }
 
             File.Move(sourceAbsPath, destAbsPath);
+
+            var sourceInRaw = sourceAbsPath.Replace("archive", "raw");
+            if (sourceInRaw != sourceAbsPath && File.Exists(sourceInRaw))
+            {
+                File.Move(sourceInRaw, destAbsPath.Replace("archive", "raw"), true);
+            }
+            
             return;
         }
 
@@ -323,7 +356,7 @@ public static class ProjectResourceHelper
 
         try
         {
-            if (Directory.Exists(destRelPath) && Directory.EnumerateFiles(destRelPath).Any())
+            if (Directory.Exists(destAbsPath) && Directory.EnumerateFiles(destAbsPath).Any())
             {
                 var response = await Interactions.ShowMessageBoxAsync(
                     $"Directory {destRelPath} already exists and is not empty. Do you want to overwrite existing files?",
@@ -332,6 +365,12 @@ public static class ProjectResourceHelper
             }
 
             FileHelper.MoveRecursively(sourceAbsPath, destAbsPath, overwriteFiles, GetLoggerService());
+
+            var sourceInRaw = sourceAbsPath.Replace("archive", "raw");
+            if (sourceInRaw != sourceAbsPath && Directory.Exists(sourceInRaw))
+            {
+                FileHelper.MoveRecursively(sourceInRaw, destAbsPath.Replace("archive", "raw"), overwriteFiles, GetLoggerService());
+            }
 
             GetLoggerService()?.Info($"Moved {sourceRelPath}{Path.DirectorySeparatorChar}* to {destRelPath}");
         }
@@ -531,4 +570,5 @@ public static class ProjectResourceHelper
 
         cw.WriteFile(cr2W);
     }
+
 }

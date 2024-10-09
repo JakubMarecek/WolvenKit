@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows.Forms;
+using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WolvenKit.App.Helpers;
@@ -17,6 +17,10 @@ public partial class ChunkViewModel
 
     [NotifyCanExecuteChangedFor(nameof(DuplicateChunkCommand))]
     [NotifyCanExecuteChangedFor(nameof(DuplicateAsNewChunkCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ToggleEnableMaskedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertPreloadMaterialsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteUnusedMaterialsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ClearMaterialsCommand))]
     [ObservableProperty] private bool _isShiftKeyPressed;
     
     [ObservableProperty] private bool _isCtrlKeyPressed;
@@ -44,7 +48,7 @@ public partial class ChunkViewModel
 
     #region methods
 
-    private void OnModifierChanged(object? sender, KeyEventArgs e) => RefreshContextMenuFlags();
+    private void OnModifierChanged() => RefreshContextMenuFlags();
 
     public void RefreshContextMenuFlags()
     {
@@ -69,8 +73,6 @@ public partial class ChunkViewModel
 
         IsInArrayWithShiftKeyUp = IsInArray && !IsShiftKeyPressed;
         IsInArrayWithShiftKeyDown = IsInArray && IsShiftKeyPressed;
-
-        ToggleEnableMaskedCommand.NotifyCanExecuteChanged();
     }
 
     public bool IsMaterialDefinition()

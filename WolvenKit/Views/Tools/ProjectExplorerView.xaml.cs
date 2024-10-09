@@ -9,6 +9,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using HandyControl.Data;
 using ReactiveUI;
@@ -259,7 +260,7 @@ namespace WolvenKit.Views.Tools
 
         private void TreeGrid_OnNodeExpanding(object sender, NodeExpandingEventArgs e)
         {
-            if (ViewModel is null || _automatic || !ViewModel.ModifierViewStateService.IsShiftKeyPressed)
+            if (ViewModel is null || _automatic || !ViewModel.ModifierStateService.IsShiftKeyPressed)
             {
                 return;
             }
@@ -331,7 +332,7 @@ namespace WolvenKit.Views.Tools
                 return;
             }
 
-            if (ViewModel.ModifierViewStateService.IsCtrlKeyPressed && e.Node.HasChildNodes)
+            if (ViewModel.ModifierStateService.IsCtrlKeyPressed && e.Node.HasChildNodes)
             {
                 _automatic = true;
                 e.Cancel = true;
@@ -339,7 +340,7 @@ namespace WolvenKit.Views.Tools
                 var state = e.Node.ChildNodes[0].IsExpanded;
                 foreach (var childNode in e.Node.ChildNodes)
                 {
-                    if (ViewModel.ModifierViewStateService.IsShiftKeyPressed)
+                    if (ViewModel.ModifierStateService.IsShiftKeyPressed)
                     {
                         if (state)
                         {
@@ -367,7 +368,7 @@ namespace WolvenKit.Views.Tools
                 return;
             }
 
-            if (!ViewModel.ModifierViewStateService.IsShiftKeyPressed)
+            if (!ViewModel.ModifierStateService.IsShiftKeyPressed)
             {
                 return;
             }
@@ -725,7 +726,7 @@ namespace WolvenKit.Views.Tools
         /// </summary>
         private async Task ProcessFileAction(IReadOnlyList<string> sourceFiles, string targetDirectory)
         {
-            var isCopy = ViewModel?.ModifierViewStateService.IsCtrlKeyPressed == true;
+            var isCopy = ViewModel?.ModifierStateService.IsCtrlKeyPressed == true;
 
             // Abort if a directory is dragged on itself or its parent
             if (!isCopy && sourceFiles.Count == 1 &&
@@ -1040,5 +1041,34 @@ namespace WolvenKit.Views.Tools
             TreeGrid.ScrollInView(new RowColumnIndex(rowIndex, columnIndex));
             TreeGrid.View.MoveCurrentToPosition(rowIndex);
         }
+
+        private bool _isContextMenuOpen;
+
+        private void OnKeyStateChanged(object sender, KeyEventArgs e)
+        {
+            if (!_isContextMenuOpen)
+            {
+                ViewModel?.ModifierStateService.OnKeystateChanged(e);
+            }
+        }
+
+        private void ContextMenu_OnKeyStateChanged(object sender, KeyEventArgs e)
+        {
+            if (_isContextMenuOpen)
+            {
+                ViewModel?.ModifierStateService.OnKeystateChanged(e);
+            }
+        }
+
+        private void RefreshModifierStates(object sender, ContextMenuEventArgs e) =>
+            ViewModel?.ModifierStateService.RefreshModifierStates();
+
+        private void OnContextMenuOpen(object sender, ContextMenuEventArgs e)
+        {
+            _isContextMenuOpen = true;
+            ViewModel?.ModifierStateService.RefreshModifierStates();
+        }
+
+        private void OnContextMenuClose(object sender, ContextMenuEventArgs e) => _isContextMenuOpen = false;
     }
 }

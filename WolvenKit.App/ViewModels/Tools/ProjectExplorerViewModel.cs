@@ -56,7 +56,7 @@ public partial class ProjectExplorerViewModel : ToolViewModel
     private readonly IProgressService<double> _progressService;
     private readonly IGameControllerFactory _gameController;
     private readonly AppViewModel _mainViewModel;
-    public readonly IModifierViewStateService ModifierViewStateService;
+    public readonly IModifierViewStateService ModifierStateService;
     private readonly IWatcherService _projectWatcher;
 
     [ObservableProperty]
@@ -64,6 +64,7 @@ public partial class ProjectExplorerViewModel : ToolViewModel
     private IPluginService _pluginService;
 
     private readonly ISettingsManager _settingsManager;
+    private readonly IArchiveManager _archiveManager;
 
     #endregion fields
 
@@ -76,7 +77,8 @@ public partial class ProjectExplorerViewModel : ToolViewModel
         IGameControllerFactory gameController,
         IPluginService pluginService,
         ISettingsManager settingsManager,
-        IModifierViewStateService modifierSvc
+        IModifierViewStateService modifierSvc,
+        IArchiveManager archiveManager
     ) : base(s_toolTitle)
     {
         _projectManager = projectManager;
@@ -86,7 +88,8 @@ public partial class ProjectExplorerViewModel : ToolViewModel
         _gameController = gameController;
         _pluginService = pluginService;
         _settingsManager = settingsManager;
-        ModifierViewStateService = modifierSvc;
+        _archiveManager = archiveManager;
+        ModifierStateService = modifierSvc;
 
         _mainViewModel = appViewModel;
 
@@ -95,7 +98,7 @@ public partial class ProjectExplorerViewModel : ToolViewModel
         SideInDockedMode = DockSide.Left;
 
         IsShowRelativePath = true;
-        ModifierViewStateService.ModifierStateChanged += OnModifierUpdateEvent;
+        ModifierStateService.ModifierStateChanged += OnModifierUpdateEvent;
         
         SetupToolDefaults();
         
@@ -291,7 +294,7 @@ public partial class ProjectExplorerViewModel : ToolViewModel
     private bool CanOpenRootFolder() => ActiveProject != null;
     [RelayCommand(CanExecute = nameof(CanOpenRootFolder))]
     private void OpenRootFolder() => Commonfunctions.ShowFolderInExplorer(
-        IsShiftKeyPressed ? ActiveProject.NotNull().Location : GetActiveFolderPath()
+        ActiveProject is not null && ModifierViewStateService.IsShiftBeingHeld ? ActiveProject.ProjectDirectory : GetActiveFolderPath()
     );
 
     /// <summary>
@@ -566,7 +569,11 @@ public partial class ProjectExplorerViewModel : ToolViewModel
     /// <summary>
     /// Reimports the game file to replace the current one
     /// </summary>
-    private bool CanOverwriteWithGameFile() => ActiveProject != null && SelectedItem != null && !IsInRawFolder(SelectedItem);
+    private bool CanOverwriteWithGameFile() => ActiveProject != null
+                                               && SelectedItem != null
+                                               && !IsInRawFolder(SelectedItem)
+                                               && (SelectedItem.GameRelativePath.StartsWith("base") ||
+                                                   SelectedItem.GameRelativePath.StartsWith("ep1"));
 
     [RelayCommand(CanExecute = nameof(CanOverwriteWithGameFile))]
     private async Task OverwriteWithGameFile()
@@ -1074,44 +1081,34 @@ public partial class ProjectExplorerViewModel : ToolViewModel
             IsVisible = false;
         }
         
-        if (e.PropertyName != nameof(SelectedTabIndex) || ActiveProject is null)
+        if (e.PropertyName == nameof(SelectedTabIndex) && ActiveProject is not null)
         {
-            return;
+            ActiveProject.ActiveTab = SelectedTabIndex;
+            _projectExplorerTabChanged = true;
         }
 
-        ActiveProject.ActiveTab = SelectedTabIndex;
-        _projectExplorerTabChanged = true;
+        base.OnPropertyChanged(e);
     }
 
     #endregion Methods
 
     #region ModifierStateAwareness
 
-    // ####################################################################################
-    // Integrate with _modifierViewStatesModel to expose keys to view 
-    // ####################################################################################
-
-    public bool IsShiftKeyPressed => ModifierViewStateService.IsShiftKeyPressed;
-    public bool IsShiftKeyPressedOnly => ModifierViewStateService.IsShiftKeyPressedOnly;
-    public bool IsCtrlKeyPressed => ModifierViewStateService.IsCtrlKeyPressed;
-    public bool IsCtrlKeyPressedOnly => ModifierViewStateService.IsCtrlKeyPressedOnly;
-    public bool IsNoModifierPressed => ModifierViewStateService.IsNoModifierPressed;
-
     /// <summary>
     /// Reacts to ModifierViewStatesModel's emitted events
     /// </summary>
-    private void OnModifierUpdateEvent(object? sender, KeyEventArgs keyEventArgs)
+    private void OnModifierUpdateEvent()
     {
-        IsShowAbsolutePathToRawFolder = ModifierViewStateService.IsCtrlShiftOnlyPressed && IsInArchiveFolder(SelectedItem);
-        IsShowAbsolutePathToArchiveFolder = ModifierViewStateService.IsCtrlShiftOnlyPressed && IsInRawFolder(SelectedItem);
+        IsShowAbsolutePathToRawFolder = ModifierStateService.IsCtrlShiftOnlyPressed && IsInArchiveFolder(SelectedItem);
+        IsShowAbsolutePathToArchiveFolder = ModifierStateService.IsCtrlShiftOnlyPressed && IsInRawFolder(SelectedItem);
 
-        IsShowAbsolutePathToCurrentFile = ModifierViewStateService.IsShiftKeyPressedOnly;
+        IsShowAbsolutePathToCurrentFile = ModifierStateService.IsShiftKeyPressedOnly;
 
-        IsShowAbsolutePathToCurrentFolder = ModifierViewStateService.IsCtrlKeyPressedOnly;
+        IsShowAbsolutePathToCurrentFolder = ModifierStateService.IsCtrlKeyPressedOnly;
 
         IsShowRelativePath = !(IsShowAbsolutePathToRawFolder || IsShowAbsolutePathToArchiveFolder ||
                                IsShowAbsolutePathToCurrentFile || IsShowAbsolutePathToCurrentFolder) ||
-                             Services.ModifierViewStateService.IsNoModifierBeingHeld;
+                             ModifierViewStateService.IsNoModifierBeingHeld;
     }
 
     public IDocumentViewModel? GetActiveEditorFile() => _mainViewModel.ActiveDocument;

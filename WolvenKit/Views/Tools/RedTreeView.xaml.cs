@@ -168,7 +168,14 @@ namespace WolvenKit.Views.Tools
             //    e.Cancel = true;
         }
 
-        public bool IsControlBeingHeld => _modifierViewStateSvc.IsCtrlKeyPressed;
+        public bool IsControlBeingHeld
+        {
+            get => (bool)GetValue(IsControlBeingHeldProperty);
+            set => SetValue(IsControlBeingHeldProperty, value);
+        }
+
+        public static readonly DependencyProperty IsControlBeingHeldProperty =
+            DependencyProperty.Register(nameof(IsControlBeingHeld), typeof(bool), typeof(RedTreeView));
 
         private bool IsAllowDrop(TreeViewItemDragOverEventArgs e)
         {
@@ -228,7 +235,8 @@ namespace WolvenKit.Views.Tools
                 return;
             }
 
-            var targetIndex = target.Parent.Properties.IndexOf(target);
+            var indexOffset = e.DropPosition == DropPosition.DropBelow ? 1 : 0;
+            var targetIndex = target.Parent.Properties.IndexOf(target) + indexOffset;
 
             foreach (var node in e.DraggingNodes.Where(node => node.Content is ChunkViewModel))
             {
@@ -239,21 +247,15 @@ namespace WolvenKit.Views.Tools
                     if (await Interactions.ShowMessageBoxAsync($"Duplicate {source.Data.GetType().Name} here?",
                             "Duplicate Confirmation", WMessageBoxButtons.YesNo) == WMessageBoxResult.Yes)
                     {
-                        target.Parent.InsertChild(
-                            target.Parent.Properties.IndexOf(target) +
-                            (e.DropPosition == DropPosition.DropBelow ? 1 : 0), (IRedType)irc.DeepCopy());
+                        target.Parent.InsertChild(targetIndex, (IRedType)irc.DeepCopy());
                     }
                 }
                 else
                 {
                     Debug.WriteLine("Moved a node to " + targetIndex);
-                    target.Parent.MoveChild(
-                        targetIndex + (e.DropPosition == DropPosition.DropBelow ? 1 : 0),
-                        source);
-                    targetIndex += 1;
+                    target.Parent.MoveChild(targetIndex, source);
                 }
             }
-
 
             e.Handled = true;
         }
@@ -423,9 +425,37 @@ namespace WolvenKit.Views.Tools
 
         private void TreeViewContextMenu_OnOpened(object sender, RoutedEventArgs e)
         {
+            _isContextMenuOpen = true;
+            _modifierViewStateSvc.RefreshModifierStates();
+            if (SelectedItem is ChunkViewModel cvm && GetSelectedChunks().Count == 1)
+            {
+                cvm.RefreshContextMenuFlags();
+            }
+        }
+
+        private void TreeViewContextMenu_OnClosed(object sender, RoutedEventArgs e) => _isContextMenuOpen = false;
+
+        private void TreeViewContextMenu_OnKeyChanged(object sender, KeyEventArgs e)
+        {
+            if (!_isContextMenuOpen)
+            {
+                return;
+            }
+
+            _modifierViewStateSvc.OnKeystateChanged(e);
             if (SelectedItem is ChunkViewModel cvm)
             {
                 cvm.RefreshContextMenuFlags();
+            }
+        }
+
+        private bool _isContextMenuOpen;
+
+        private void TreeView_OnKeyChanged(object sender, KeyEventArgs e)
+        {
+            if (!_isContextMenuOpen)
+            {
+                _modifierViewStateSvc.OnKeystateChanged(e);
             }
         }
     }

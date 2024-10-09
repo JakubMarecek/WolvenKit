@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
-using CommunityToolkit.Mvvm.ComponentModel;
+using System.Threading;
+using System.Windows;
 using DynamicData.Binding;
 using WolvenKit.RED4.Types;
 
@@ -152,6 +153,35 @@ public partial class ChunkViewModel
             case JsonResource when GetPropertyFromPath("root") is ChunkViewModel child:
                 ExpandAndSelect(child, true);
                 break;
+            // streamingsector
+            case worldStreamingSector:
+                // will run into stack overflow due to race conditions if we do this straight away. Let's wait a bit!
+                var newThread = new Thread(() =>
+                {
+                    if (GetPropertyFromPath("nodes") is ChunkViewModel nodes)
+                    {
+                        Thread.Sleep(10);
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            nodes.CalculateProperties();
+                            nodes.IsExpanded = true;
+                        });
+                    }
+
+                    if (GetPropertyFromPath("nodeData") is not ChunkViewModel data)
+                    {
+                        return;
+                    }
+
+                    Thread.Sleep(40);
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        ExpandAndSelect(data, Tab?.SelectedChunk is not ChunkViewModel);
+                    });
+                });
+
+                newThread.Start();
+                break;  
             default:
                 break;
         }
@@ -178,7 +208,14 @@ public partial class ChunkViewModel
             return;
         }
 
-        SetChildExpansionStatesInternal(isExpanded, skipRecursion ? 99 : -1);
+        try
+        {
+            SetChildExpansionStatesInternal(isExpanded, skipRecursion ? 99 : -1);
+        }
+        catch
+        {
+            // Don't set expansion states. Sometimes, this can cause threaded exception
+        }
     }
 
     /// <summary>

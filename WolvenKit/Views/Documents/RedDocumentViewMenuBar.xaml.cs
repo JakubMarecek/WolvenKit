@@ -7,7 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Forms;
+using System.Windows.Input;
 using ReactiveUI;
 using Splat;
 using WolvenKit.App;
@@ -18,6 +18,7 @@ using WolvenKit.App.ViewModels.Documents;
 using WolvenKit.App.ViewModels.Scripting;
 using WolvenKit.App.ViewModels.Shell;
 using WolvenKit.App.ViewModels.Tools.EditorDifficultyLevel;
+using WolvenKit.Common;
 using WolvenKit.Common.Extensions;
 using WolvenKit.Core.Exceptions;
 using WolvenKit.Core.Interfaces;
@@ -36,7 +37,6 @@ namespace WolvenKit.Views.Documents
         private readonly WatcherService _projectWatcher;
         private readonly IAppArchiveManager _archiveManager;
         private readonly IModifierViewStateService _modifierStateService;
-
 
         public RedDocumentViewMenuBar()
         {
@@ -69,7 +69,7 @@ namespace WolvenKit.Views.Documents
             });
         }
 
-        private void OnModifierStateChanged(object? sender, KeyEventArgs keyEventArgs) => RefreshChildMenuItems();
+        private void OnModifierStateChanged() => RefreshChildMenuItems();
 
         private RedDocumentTabViewModel? _currentTab;
 
@@ -86,11 +86,6 @@ namespace WolvenKit.Views.Documents
                 .Where(s => s.Name == "run_FileValidation_on_active_tab")
                 .Select(s => new ScriptFileViewModel(_settingsManager, ScriptSource.System, s))
                 .FirstOrDefault();
-
-            if (_fileValidationScript is null && ViewModel is not null)
-            {
-                ViewModel.IsFileValidationMenuVisible = false;
-            }
         }
 
         public RedDocumentTabViewModel? CurrentTab
@@ -144,9 +139,26 @@ namespace WolvenKit.Views.Documents
 
         private void OnFileValidationClick(object _, RoutedEventArgs e)
         {
-            _loggerService.Info("Running file validation, please wait. The UI will be unresponsive.");
+            // in .app or root entity: warn with >5 appearances, because this can take a while 
+            if (ViewModel?.RootChunk is ChunkViewModel cvm
+                && ((cvm.ResolvedData is appearanceAppearanceResource app && app.Appearances.Count > 5) ||
+                    (cvm.ResolvedData is entEntityTemplate ent && ent.Appearances.Count > 5)))
+            {
+                var result = Interactions.ShowConfirmation((
+                    "Run file validation now? (Wolvenkit will be unresponsive)",
+                    "Wolvenkit may be unresponsive",
+                    WMessageBoxImage.Question,
+                    WMessageBoxButtons.YesNo));
+                if (result != WMessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+           
             
             // This needs to be inside the DispatcherHelper, or the UI button will make everything explode
+            DispatcherHelper.RunOnMainThread(
+                () => _loggerService.Info("Running file validation, please wait. The UI will be unresponsive."));
             DispatcherHelper.RunOnMainThread(() => Task.Run(async () => await RunFileValidation()).GetAwaiter().GetResult());
         }
 
@@ -223,12 +235,36 @@ namespace WolvenKit.Views.Documents
             return Path.Join(subfolder, projectName, "dependencies");
         }
 
-        private async Task AddDependenciesToMesh(ChunkViewModel cvm)
+        private async Task AddDependenciesToMesh(ChunkViewModel _)
         {
-            cvm.DeleteUnusedMaterialsCommand.Execute(null);
+            if (RootChunk is not { ResolvedData: CMesh } rootChunk)
+            {
+                return;
+            }
+
+            rootChunk.DeleteUnusedMaterialsCommand.Execute(null);
             await LoadModArchives();
 
-            var materialDependencies = await cvm.GetMaterialDependenciesOutsideOfProject();
+            var materialDependencies = await rootChunk.GetMaterialDependenciesOutsideOfProject();
+            var isShiftKeyDown = ModifierViewStateService.IsShiftBeingHeld;
+
+            // Filter files: Ignore base game files unless shift key is pressed
+            materialDependencies = materialDependencies
+                .Where(refPathHash =>
+                    {
+                        var hasBasegameFile = _archiveManager.Lookup(refPathHash, ArchiveManagerScope.Basegame) is { HasValue: true };
+                        var hasModFile = _archiveManager.Lookup(refPathHash, ArchiveManagerScope.Mods) is { HasValue: true };
+                        // Only files from mods. Filter out anything that overwrites basegame files.
+                        if (!isShiftKeyDown)
+                        {
+                            return hasModFile && !hasBasegameFile;
+                        }
+
+                        return hasModFile || hasBasegameFile;
+                    }
+                )
+                .ToHashSet();
+            
 
             var destFolder = GetTextureDirForDependencies(true);
             // Use search and replace to fix file paths
@@ -236,7 +272,7 @@ namespace WolvenKit.Views.Documents
                 destFolder, materialDependencies
             );
 
-            await SearchAndReplaceInChildNodes(cvm, pathReplacements,
+            await SearchAndReplaceInChildNodes(rootChunk, pathReplacements,
                 ChunkViewModel.LocalMaterialBufferPath,
                 ChunkViewModel.ExternalMaterialPath);
 
@@ -312,10 +348,13 @@ namespace WolvenKit.Views.Documents
                 _loggerService.Info("Loading mod archives, this may take a moment...");
                 await Task.Run(() =>
                 {
-                    _archiveManager.LoadModsArchives(new FileInfo(_settingsManager.CP77ExecutablePath), true);
+                    var ignoredArchives = _settingsManager.ArchiveNamesExcludeFromScan.Split(",").Select(m => m.Replace(".archive", ""))
+                        .ToArray();
+                    _archiveManager.LoadModArchives(new FileInfo(_settingsManager.CP77ExecutablePath), true, ignoredArchives);
+                    
                     if (_settingsManager.ExtraModDirPath is string extraModDir && !string.IsNullOrEmpty(extraModDir))
                     {
-                        _archiveManager.LoadAdditionalModArchives(extraModDir, true);
+                        _archiveManager.LoadAdditionalModArchives(extraModDir, true, ignoredArchives);
                     }
                 });
 
@@ -366,34 +405,56 @@ namespace WolvenKit.Views.Documents
             cvm.ReplaceComponentChunkMasks(dialog.ViewModel.ComponentName!, chunkMask);
         }
 
-        private MenuItem? openMenu;
+        private MenuItem? _openMenu;
 
         private void RefreshChildMenuItems()
         {
-            if (openMenu is null)
+            if (_openMenu is null)
             {
                 return;
             }
 
-            foreach (var item in openMenu.Items.OfType<MenuItem>())
+            ViewModel?.RefreshMenuVisibility();
+            
+            foreach (var item in _openMenu.Items.OfType<MenuItem>())
             {
                 // Force the submenu items to re-evaluate their bindings
-                var bindingExpression = item.GetBindingExpression(MenuItem.VisibilityProperty);
+                var bindingExpression = item.GetBindingExpression(VisibilityProperty);
                 bindingExpression?.UpdateTarget();
             }
+            
         }
 
-        private void OnMenuClosed(object sender, RoutedEventArgs e) => openMenu = null;
+        private void OnMenuClosed(object sender, RoutedEventArgs e) => _openMenu = null;
 
         // Refresh nested menu visibility bindings
         private void OnMenuOpened(object sender, RoutedEventArgs e)
         {
             if (sender is MenuItem parentMenuItem)
             {
-                openMenu = parentMenuItem;
+                _openMenu = parentMenuItem;
             }
 
+            _modifierStateService.RefreshModifierStates();
             RefreshChildMenuItems();
         }
+
+        // do not fire duplicate events... is this necessary? Somewhere we have a performance hog :/
+        private void OnMainKeystateChanged(object sender, KeyEventArgs e)
+        {
+            if (_openMenu is null)
+            {
+                _modifierStateService.OnKeystateChanged(e);
+            }
+        }
+
+        private void OnKeystateChanged(object sender, KeyEventArgs e)
+        {
+            if (_openMenu is not null)
+            {
+                _modifierStateService.OnKeystateChanged(e);
+            }
+        }
+
     }
 }

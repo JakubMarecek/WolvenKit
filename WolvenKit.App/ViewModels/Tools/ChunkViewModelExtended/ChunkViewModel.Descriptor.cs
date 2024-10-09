@@ -82,9 +82,7 @@ public partial class ChunkViewModel
             case null:
             case RedDummy:
                 return;
-
-            case worldNodeData sst when Tab is RDTDataViewModel dvm &&
-                                        dvm.Chunks[0].Data is worldStreamingSector wss && sst.NodeIndex < wss.Nodes.Count:
+            case worldNodeData sst when Parent?.Parent?.ResolvedData is worldStreamingSector wss && sst.NodeIndex < wss.Nodes.Count:
                 Descriptor = $"[{sst.NodeIndex}] {StringHelper.Stringify(wss.Nodes[sst.NodeIndex].Chunk)}";
                 return;
             case worldStreamingSectorDescriptor wssd:
@@ -212,6 +210,9 @@ public partial class ChunkViewModel
                 return;
             case scnSectionNode sectionNode:
                 Descriptor = $"{sectionNode.NodeId.Id}";
+                return;
+            case gameAnimParamSlotsOption slotsOption:
+                Descriptor = $"{slotsOption.SlotID.GetResolvedText()}";
                 return;
             case scnInteractionShapeParams shapeParams:
                 Descriptor = $"{shapeParams.Preset}";
